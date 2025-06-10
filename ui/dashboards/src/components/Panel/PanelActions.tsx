@@ -12,7 +12,7 @@
 // limitations under the License.
 
 import { Stack, Box, Popover, CircularProgress, styled, PopoverPosition } from '@mui/material';
-import { isValidElement, PropsWithChildren, ReactNode, useMemo, useState } from 'react';
+import React, { isValidElement, PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import { InfoTooltip } from '@perses-dev/components';
 import ArrowCollapseIcon from 'mdi-material-ui/ArrowCollapse';
 import ArrowExpandIcon from 'mdi-material-ui/ArrowExpand';
@@ -23,8 +23,9 @@ import ContentCopyIcon from 'mdi-material-ui/ContentCopy';
 import MenuIcon from 'mdi-material-ui/Menu';
 import { QueryData } from '@perses-dev/plugin-system';
 import AlertIcon from 'mdi-material-ui/Alert';
+import DownloadIcon from 'mdi-material-ui/Download'
 import InformationOutlineIcon from 'mdi-material-ui/InformationOutline';
-import { Link } from '@perses-dev/core';
+import { Link, TimeSeriesData } from '@perses-dev/core';
 import {
   ARIA_LABEL_TEXT,
   HEADER_ACTIONS_CONTAINER_NAME,
@@ -34,6 +35,7 @@ import {
 } from '../../constants';
 import { HeaderIconButton } from './HeaderIconButton';
 import { PanelLinks } from './PanelLinks';
+
 
 //ADDED THIS INTERFACE
 // Interface definitions for different data types
@@ -86,12 +88,8 @@ export interface PanelActionsProps {
     isPanelViewed?: boolean;
     onViewPanelClick: () => void;
   };
-<<<<<<< Updated upstream
-  queryResults: QueryData[];
-=======
   queryResults?: TimeSeriesData | BarChartData | TableData | TraceData | QueryData | QueryData[] | any | undefined;
   panelType?: 'timeseries' | 'bar' | 'table' | 'other';
->>>>>>> Stashed changes
 }
 
 // Type guard functions
@@ -129,8 +127,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   queryResults,
   panelType = 'timeseries', //make this default type
 }) => {
-<<<<<<< Updated upstream
-=======
+
   const formatSeriesTitle = (seriesName: string, seriesIndex: number) => {
     return seriesName;
   };
@@ -400,7 +397,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     );
   }, [csvExportHandler, shouldShowCsvExport]);
 
->>>>>>> Stashed changes
   const descriptionAction = useMemo(() => {
     if (description && description.trim().length > 0) {
       return (
@@ -423,11 +419,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   const extraActions = editHandlers === undefined && extra;
 
   const queryStateIndicator = useMemo(() => {
-<<<<<<< Updated upstream
-    const hasData = queryResults.some((q) => q.data);
-    const isFetching = queryResults.some((q) => q.isFetching);
-    const queryErrors = queryResults.filter((q) => q.error);
-=======
+
     const hasData = queryResults && (() => {
       // Handle array of QueryData
       if (Array.isArray(queryResults)) {
@@ -466,7 +458,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     const isFetching = false;
     const queryErrors: any[] = [];
 
->>>>>>> Stashed changes
     if (isFetching && hasData) {
       // If the panel has no data, the panel content will show the loading overlay.
       // Therefore, show the circular loading indicator only in case the panel doesn't display the loading overlay already.

@@ -13,9 +13,9 @@
 
 import { CardHeader, CardHeaderProps, Stack, Typography } from '@mui/material';
 import { combineSx } from '@perses-dev/components';
-import { Link } from '@perses-dev/core';
+import { Link, TimeSeriesData } from '@perses-dev/core';
 import { QueryData, useReplaceVariablesInString } from '@perses-dev/plugin-system';
-import { ReactElement, ReactNode } from 'react';
+import React, { ReactElement, ReactNode, useMemo } from 'react';
 import { HEADER_ACTIONS_CONTAINER_NAME } from '../../constants';
 import { PanelActions, PanelActionsProps } from './PanelActions';
 
@@ -106,8 +106,6 @@ export function PanelHeader({
   const title = useReplaceVariablesInString(rawTitle) as string;
   const description = useReplaceVariablesInString(rawDescription);
 
-<<<<<<< Updated upstream
-=======
 // Enhanced data extraction to support different panel types
   const dataForExport = useMemo(() => {
     if (!queryResults || queryResults.length === 0) {
@@ -159,8 +157,6 @@ export function PanelHeader({
   // Determine if CSV export should be available based on panel type
   const csvExportAvailable = panelType === 'timeseries' || panelType === 'bar' || panelType === 'table';
 
-
->>>>>>> Stashed changes
   return (
     <CardHeader
       id={id}
@@ -190,12 +186,8 @@ export function PanelHeader({
             description={description}
             descriptionTooltipId={descriptionTooltipId}
             links={links}
-<<<<<<< Updated upstream
-            queryResults={queryResults}
-=======
             queryResults={dataForExport}
             panelType={panelType} //passes the panel type to panel actions
->>>>>>> Stashed changes
             readHandlers={readHandlers}
             editHandlers={editHandlers}
             extra={extra}
