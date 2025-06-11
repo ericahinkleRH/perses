@@ -23,7 +23,7 @@ import ContentCopyIcon from 'mdi-material-ui/ContentCopy';
 import MenuIcon from 'mdi-material-ui/Menu';
 import { QueryData } from '@perses-dev/plugin-system';
 import AlertIcon from 'mdi-material-ui/Alert';
-import DownloadIcon from 'mdi-material-ui/Download'
+import DownloadIcon from 'mdi-material-ui/Download';
 import InformationOutlineIcon from 'mdi-material-ui/InformationOutline';
 import { Link, TimeSeriesData } from '@perses-dev/core';
 import {
@@ -36,8 +36,6 @@ import {
 import { HeaderIconButton } from './HeaderIconButton';
 import { PanelLinks } from './PanelLinks';
 
-
-//ADDED THIS INTERFACE
 // Interface definitions for different data types
 interface TraceData {
   traceID?: string;
@@ -107,8 +105,6 @@ const isTableData = (data: any): data is TableData => {
   return data && typeof data === 'object' && 'columns' in data && 'rows' in data;
 };
 
-//END MY CODE
-
 const ConditionalBox = styled(Box)({
   display: 'none',
   alignItems: 'center',
@@ -125,14 +121,13 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   descriptionTooltipId,
   links,
   queryResults,
-  panelType = 'timeseries', //make this default type
+  panelType = 'timeseries',
 }) => {
 
   const formatSeriesTitle = (seriesName: string, seriesIndex: number) => {
     return seriesName;
   };
 
-  //MY CODE updated exporter to do multiple data types
   // Enhanced function to determine if CSV export should be available
   const shouldShowCsvExport = useMemo(() => {
     if (!queryResults) {
@@ -168,7 +163,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 
     return false;
   }, [queryResults, panelType]);
-
 
   const exportTimeSeriesData = (data: TimeSeriesData): string => {
     if (!data || !data.series || !Array.isArray(data.series) || data.series.length === 0) {
@@ -284,47 +278,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     return csvString;
   };
 
-  const exportGenericData = (data: any): string => {
-    if (Array.isArray(data)) {
-      if (data.length > 0 && typeof data[0] === 'object') {
-        const keys = Object.keys(data[0]);
-        let csvString = `${keys.join(',')}\n`;
-        
-        for (const item of data) {
-          const values = keys.map(key => {
-            const value = item[key];
-            if (value === null || value === undefined) return '';
-            const valueStr = String(value);
-            if (valueStr.includes(',') || valueStr.includes('"') || valueStr.includes('\n')) {
-              return `"${valueStr.replace(/"/g, '""')}"`;
-            }
-            return valueStr;
-          });
-          csvString += `${values.join(',')}\n`;
-        }
-        return csvString;
-      }
-    } else if (typeof data === 'object' && data !== null) {
-      for (const [key, value] of Object.entries(data)) {
-        if (Array.isArray(value) && value.length > 0) {
-          return exportGenericData(value);
-        }
-      }
-      
-      let csvString = 'Property,Value\n';
-      for (const [key, value] of Object.entries(data)) {
-        const valueStr = String(value ?? '');
-        const escapedValue = valueStr.includes(',') || valueStr.includes('"') || valueStr.includes('\n')
-          ? `"${valueStr.replace(/"/g, '""')}"`
-          : valueStr;
-        csvString += `${key},${escapedValue}\n`;
-      }
-      return csvString;
-    }
-
-    return '';
-  };
-
   // Main CSV export handler
   const csvExportHandler = () => {
     if (!queryResults) {
@@ -333,7 +286,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     }
 
     let csvString = '';
-
     let dataToExport = queryResults;
 
     try {
@@ -369,6 +321,8 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
       console.warn('No valid data found for CSV export');
       return;
     }
+
+    console.log('Generated CSV String:', csvString);
 
     const blobCsvData = new Blob([csvString], { type: 'text/csv' });
     const csvURL = URL.createObjectURL(blobCsvData);
@@ -419,7 +373,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   const extraActions = editHandlers === undefined && extra;
 
   const queryStateIndicator = useMemo(() => {
-
     const hasData = queryResults && (() => {
       // Handle array of QueryData
       if (Array.isArray(queryResults)) {
@@ -459,13 +412,11 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     const queryErrors: any[] = [];
 
     if (isFetching && hasData) {
-      // If the panel has no data, the panel content will show the loading overlay.
-      // Therefore, show the circular loading indicator only in case the panel doesn't display the loading overlay already.
       return <CircularProgress aria-label="loading" size="1.125rem" />;
     } else if (queryErrors.length > 0) {
       const errorTexts = queryErrors
         .map((q) => q.error)
-        .map((e: any) => e?.message ?? e?.toString() ?? 'Unknown error') // eslint-disable-line @typescript-eslint/no-explicit-any
+        .map((e: any) => e?.message ?? e?.toString() ?? 'Unknown error')
         .join('\n');
 
       return (
@@ -501,7 +452,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 
   const editActions = useMemo(() => {
     if (editHandlers !== undefined) {
-      // If there are edit handlers, always just show the edit buttons
       return (
         <>
           <InfoTooltip description={TOOLTIP_TEXT.editPanel}>
@@ -522,8 +472,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
               <ContentCopyIcon
                 fontSize="inherit"
                 sx={{
-                  // Shrink this icon a little bit to look more consistent
-                  // with the other icons in the header.
                   transform: 'scale(0.925)',
                 }}
               />
@@ -559,7 +507,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 
   const divider = <Box sx={{ flexGrow: 1 }}></Box>;
 
-  // if the panel is in non-editing, non-fullscreen mode, show certain icons only on hover
   const OnHover = ({ children }: PropsWithChildren): ReactNode =>
     editHandlers === undefined && !readHandlers?.isPanelViewed ? (
       <Box sx={{ display: 'var(--panel-hover, none)' }}>{children}</Box>
@@ -579,6 +526,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
         <OnHover>
           <OverflowMenu title={title}>
             {descriptionAction} {linksAction} {queryStateIndicator} {extraActions} {readActions} {editActions}
+            {csvExportButton}
           </OverflowMenu>
           {moveAction}
         </OnHover>
@@ -598,7 +546,10 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
         {divider} {queryStateIndicator}
         <OnHover>
           {extraActions} {readActions}
-          <OverflowMenu title={title}>{editActions}</OverflowMenu>
+          <OverflowMenu title={title}>
+            {editActions}
+            {csvExportButton}
+          </OverflowMenu>
           {moveAction}
         </OnHover>
       </ConditionalBox>
@@ -606,7 +557,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
       {/* large panel width: show all icons in panel header */}
       <ConditionalBox
         sx={(theme) => ({
-          // flip the logic here; if the browser (or jsdom) does not support container queries, always show all icons
           display: 'flex',
           [theme.containerQueries(HEADER_ACTIONS_CONTAINER_NAME).down(HEADER_MEDIUM_WIDTH)]: { display: 'none' },
         })}
@@ -617,6 +567,9 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
         {divider} {queryStateIndicator}
         <OnHover>
           {extraActions} {readActions} {editActions} {moveAction}
+          <OverflowMenu title={title}>
+            {csvExportButton}
+          </OverflowMenu>
         </OnHover>
       </ConditionalBox>
     </>
@@ -626,7 +579,6 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 const OverflowMenu: React.FC<PropsWithChildren<{ title: string }>> = ({ children, title }) => {
   const [anchorPosition, setAnchorPosition] = useState<PopoverPosition>();
 
-  // do not show overflow menu if there is no content (for example, edit actions are hidden)
   const hasContent = isValidElement(children) || (Array.isArray(children) && children.some(isValidElement));
   if (!hasContent) {
     return undefined;
