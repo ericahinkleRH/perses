@@ -12,7 +12,7 @@
 // limitations under the License.
 
 import { Stack, Box, Popover, CircularProgress, styled, PopoverPosition } from '@mui/material';
-import React, { isValidElement, PropsWithChildren, ReactNode, useMemo, useState } from 'react';
+import { isValidElement, PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import { InfoTooltip } from '@perses-dev/components';
 import ArrowCollapseIcon from 'mdi-material-ui/ArrowCollapse';
 import ArrowExpandIcon from 'mdi-material-ui/ArrowExpand';
@@ -23,8 +23,8 @@ import ContentCopyIcon from 'mdi-material-ui/ContentCopy';
 import MenuIcon from 'mdi-material-ui/Menu';
 import { QueryData } from '@perses-dev/plugin-system';
 import AlertIcon from 'mdi-material-ui/Alert';
-import DownloadIcon from 'mdi-material-ui/Download';
 import InformationOutlineIcon from 'mdi-material-ui/InformationOutline';
+import DownloadIcon from 'mdi-material-ui/Download'; 
 import { Link, TimeSeriesData } from '@perses-dev/core';
 import {
   ARIA_LABEL_TEXT,
@@ -36,39 +36,41 @@ import {
 import { HeaderIconButton } from './HeaderIconButton';
 import { PanelLinks } from './PanelLinks';
 
-// Interface definitions for different data types
-interface TraceData {
-  traceID?: string;
-  spans: Array<{
-    spanID: string;
-    operationName: string;
-    startTimeUnixNano: string;
-    durationNano: string;
-    parentSpanID?: string;
-    tags?: Array<{ key: string; value: string }>;
-    logs?: Array<{ timestamp: string; fields: Array<{ key: string; value: string }> }>;
-    references?: Array<{ refType: string; traceID: string; spanID: string }>;
-  }>;
-  warnings?: string[];
-  processes?: Record<string, { serviceName: string; tags: Array<{ key: string; value: string }> }>;
-}
-
-interface BarChartData {
-  categories?: string[];
-  series?: Array<{
+// Enhanced data types for different chart types
+export interface TableData {
+  columns: Array<{
     name: string;
-    data: number[];
+    displayName?: string;
+    type?: string;
   }>;
-  data?: Array<{
-    category: string;
-    value: number;
-    series?: string;
-  }>;
+  rows: Array<Record<string, any>>;
+  metadata?: {
+    title?: string;
+    description?: string;
+  };
 }
 
-interface TableData {
-  columns: string[];
-  rows: any[][];
+export interface BarChartData {
+  categories: string[];
+  series: Array<{
+    name: string;
+    displayName?: string;
+    data: number[];
+    color?: string;
+  }>;
+  xAxis?: {
+    title?: string;
+    categories?: string[];
+  };
+  yAxis?: {
+    title?: string;
+    min?: number;
+    max?: number;
+  };
+  metadata?: {
+    title?: string;
+    description?: string;
+  };
 }
 
 export interface PanelActionsProps {
@@ -86,24 +88,9 @@ export interface PanelActionsProps {
     isPanelViewed?: boolean;
     onViewPanelClick: () => void;
   };
-  queryResults?: TimeSeriesData | BarChartData | TableData | TraceData | QueryData | QueryData[] | any | undefined;
-  panelType?: 'timeseries' | 'bar' | 'table' | 'other';
+  queryResults: TimeSeriesData | TableData | BarChartData | undefined;
+  dataType?: 'timeseries' | 'table' | 'barchart';
 }
-
-// Type guard functions
-const isTimeSeriesData = (data: any): data is TimeSeriesData => {
-  return data && typeof data === 'object' && 'series' in data && Array.isArray(data.series);
-};
-
-const isBarChartData = (data: any): data is BarChartData => {
-  return data && typeof data === 'object' && 
-    (('categories' in data && 'series' in data) || 
-     ('data' in data && Array.isArray(data.data)));
-};
-
-const isTableData = (data: any): data is TableData => {
-  return data && typeof data === 'object' && 'columns' in data && 'rows' in data;
-};
 
 const ConditionalBox = styled(Box)({
   display: 'none',
@@ -111,6 +98,254 @@ const ConditionalBox = styled(Box)({
   flexGrow: 1,
   justifyContent: 'flex-end',
 });
+
+// Enhanced data type detection
+const detectDataType = (data: any): 'timeseries' | 'table' | 'barchart' | 'unknown' => {
+  if (!data) return 'unknown';
+  
+  // Check for time series data
+  if (data.series && Array.isArray(data.series) && data.series.length > 0) {
+    const firstSeries = data.series[0];
+    if (firstSeries.values && Array.isArray(firstSeries.values)) {
+      return 'timeseries';
+    }
+  }
+  
+  // Check for table data
+  if (data.columns && Array.isArray(data.columns) && data.rows && Array.isArray(data.rows)) {
+    return 'table';
+  }
+  
+  // Check for bar chart data
+  if (data.categories && Array.isArray(data.categories) && data.series && Array.isArray(data.series)) {
+    const firstSeries = data.series[0];
+    if (firstSeries && firstSeries.data && Array.isArray(firstSeries.data)) {
+      return 'barchart';
+    }
+  }
+  
+  return 'unknown';
+};
+
+// Function to check if we have exportable data
+const hasExportableData = (data: any): boolean => {
+  const dataType = detectDataType(data);
+  return dataType !== 'unknown';
+};
+
+// Function to get the actual legend display name from the series
+const getSeriesLegendName = (series: any, seriesIndex: number) => {
+  const legendName = series.formattedName || 
+                    series.legendName || 
+                    series.displayName || 
+                    series.legend || 
+                    series.name || 
+                    `Series ${seriesIndex + 1}`;
+    
+  return {
+    legendName: legendName,
+    columnName: `Series_${seriesIndex + 1}`
+  };
+};
+
+// Enhanced CSV export handler for multiple data types
+const createCsvExportHandler = (
+  title: string, 
+  queryResults: TimeSeriesData | TableData | BarChartData | undefined,
+  dataType?: 'timeseries' | 'table' | 'barchart'
+) => {
+  return () => {
+    if (!queryResults) {
+      console.warn('No data available to export to CSV');
+      return;
+    }
+
+    const detectedType = dataType || detectDataType(queryResults);
+    let csvString = '';
+
+    // Common header information
+    csvString += `# Chart: ${title}\n`;
+    csvString += `# Data Type: ${detectedType}\n`;
+    csvString += `# Exported: ${new Date().toISOString()}\n`;
+
+    switch (detectedType) {
+      case 'timeseries':
+        csvString += exportTimeSeriesData(queryResults as TimeSeriesData, title);
+        break;
+      case 'table':
+        csvString += exportTableData(queryResults as TableData, title);
+        break;
+      case 'barchart':
+        csvString += exportBarChartData(queryResults as BarChartData, title);
+        break;
+      default:
+        console.warn('Unknown data type for export');
+        return;
+    }
+
+    // Create and download the file
+    const blobCsvData = new Blob([csvString], { type: 'text/csv' });
+    const csvURL = URL.createObjectURL(blobCsvData);
+    const link = document.createElement('a');
+    link.href = csvURL;
+    link.download = `${title}_${detectedType}_data.csv`;
+    link.click();
+    URL.revokeObjectURL(csvURL);
+  };
+};
+
+// Time series data export
+const exportTimeSeriesData = (data: TimeSeriesData, title: string): string => {
+  let csvString = '';
+  const result: Record<string, Record<string, any>> = {};
+  const seriesInfo: Array<{legendName: string, columnName: string}> = [];
+
+  if (!data.series || !Array.isArray(data.series) || data.series.length === 0) {
+    console.warn('No time series data available');
+    return '';
+  }
+
+  // Process each series
+  for (let i = 0; i < data.series.length; i++) {
+    const series = data.series[i];
+    if (!series || !Array.isArray(series.values)) continue;
+
+    const seriesMetadata = getSeriesLegendName(series, i);
+    seriesInfo.push(seriesMetadata);
+
+    for (const entry of series.values) {
+      if (!Array.isArray(entry) || entry.length < 2) continue;
+
+      const timestamp = entry[0];
+      const value = entry[1];
+      
+      let dateTime: string;
+      if (typeof timestamp === 'number') {
+        const timestampMs = timestamp > 1e10 ? timestamp : timestamp * 1000;
+        dateTime = new Date(timestampMs).toISOString();
+      } else if (typeof timestamp === 'string') {
+        dateTime = new Date(timestamp).toISOString();
+      } else {
+        continue;
+      }
+
+      if (!result[dateTime]) {
+        result[dateTime] = {};
+      }
+      
+      result[dateTime]![seriesMetadata.columnName] = value;
+    }
+  }
+
+  // Add legend information
+  csvString += `# Legend Information:\n`;
+  for (const info of seriesInfo) {
+    csvString += `# ${info.columnName}: ${info.legendName}\n`;
+  }
+  csvString += `#\n`;
+
+  // Add headers and data
+  const columnNames = seriesInfo.map(info => info.columnName);
+  csvString += `DateTime,${columnNames.join(',')}\n`;
+
+  const sortedDateTimes = Object.keys(result).sort();
+  for (const dateTime of sortedDateTimes) {
+    const rowData = result[dateTime];
+    const temp: any[] = [];
+    
+    for (const columnName of columnNames) {
+      temp.push(rowData?.[columnName] ?? '');
+    }
+    
+    csvString += `${dateTime},${temp.join(',')}\n`;
+  }
+
+  return csvString;
+};
+
+// Table data export
+const exportTableData = (data: TableData, title: string): string => {
+  let csvString = '';
+
+  if (!data.columns || !data.rows) {
+    console.warn('Invalid table data structure');
+    return '';
+  }
+
+  // Add column information
+  csvString += `# Column Information:\n`;
+  for (const column of data.columns) {
+    const displayName = column.displayName || column.name;
+    const type = column.type ? ` (${column.type})` : '';
+    csvString += `# ${column.name}: ${displayName}${type}\n`;
+  }
+  csvString += `#\n`;
+
+  // Add headers
+  const headers = data.columns.map(col => col.displayName || col.name);
+  csvString += `${headers.join(',')}\n`;
+
+  // Add data rows
+  for (const row of data.rows) {
+    const values = data.columns.map(col => {
+      const value = row[col.name];
+      // Handle different data types appropriately
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'string' && value.includes(',')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return String(value);
+    });
+    csvString += `${values.join(',')}\n`;
+  }
+
+  return csvString;
+};
+
+// Bar chart data export
+const exportBarChartData = (data: BarChartData, title: string): string => {
+  let csvString = '';
+
+  if (!data.categories || !data.series) {
+    console.warn('Invalid bar chart data structure');
+    return '';
+  }
+
+  // Add axis information
+  csvString += `# Axis Information:\n`;
+  if (data.xAxis?.title) {
+    csvString += `# X-Axis: ${data.xAxis.title}\n`;
+  }
+  if (data.yAxis?.title) {
+    csvString += `# Y-Axis: ${data.yAxis.title}\n`;
+  }
+
+  // Add series information
+  csvString += `# Series Information:\n`;
+  for (let i = 0; i < data.series.length; i++) {
+    const series = data.series[i];
+    if (!series) continue;
+    const displayName = series.displayName || series.name;
+    csvString += `# Series_${i + 1}: ${displayName}\n`;
+  }
+  csvString += `#\n`;
+
+  // Add headers
+  const seriesHeaders = data.series.map((_, index) => `Series_${index + 1}`);
+  csvString += `Category,${seriesHeaders.join(',')}\n`;
+
+  // Add data rows
+  for (let i = 0; i < data.categories.length; i++) {
+    const category = data.categories[i];
+    const values = data.series.map(series => {
+      const value = series.data[i];
+      return value !== undefined ? String(value) : '';
+    });
+    csvString += `${category},${values.join(',')}\n`;
+  }
+
+  return csvString;
+};
 
 export const PanelActions: React.FC<PanelActionsProps> = ({
   editHandlers,
@@ -121,227 +356,27 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   descriptionTooltipId,
   links,
   queryResults,
-  panelType = 'timeseries',
+  dataType,
 }) => {
-
-  const formatSeriesTitle = (seriesName: string, seriesIndex: number) => {
-    return seriesName;
-  };
-
-  // Enhanced function to determine if CSV export should be available
-  const shouldShowCsvExport = useMemo(() => {
-    if (!queryResults) {
-      return false;
-    }
-
-    // Check based on panel type first
-    if (panelType === 'timeseries' || panelType === 'bar' || panelType === 'table') {
-      return true;
-    }
-
-    // If panel type is 'other' or undefined, check the actual data
-    if (isTimeSeriesData(queryResults) || isBarChartData(queryResults) || isTableData(queryResults)) {
-      return true;
-    }
-
-    // Handle QueryData array
-    if (Array.isArray(queryResults)) {
-      return queryResults.some(query => 
-        query.data && (
-          isTimeSeriesData(query.data) || 
-          isBarChartData(query.data) || 
-          isTableData(query.data)
-        )
-      );
-    }
-
-    // Handle single QueryData object
-    if (queryResults && typeof queryResults === 'object' && 'data' in queryResults) {
-      const data = (queryResults as QueryData).data;
-      return isTimeSeriesData(data) || isBarChartData(data) || isTableData(data);
-    }
-
-    return false;
-  }, [queryResults, panelType]);
-
-  const exportTimeSeriesData = (data: TimeSeriesData): string => {
-    if (!data || !data.series || !Array.isArray(data.series) || data.series.length === 0) {
-      console.warn('No TimeSeriesData available for export.');
-      return '';
-    }
-
-    let csvString = '';
-    const result: Record<string, Record<string, any>> = {};
-    const seriesNames: string[] = [];
-
-    for (let i = 0; i < data.series.length; i++) {
-      const series = data.series[i];
-
-      if (!series?.name || !Array.isArray(series.values)) {
-        continue;
-      }
-
-      const name = formatSeriesTitle(series.name, i);
-      seriesNames.push(name);
-      if (!name) {
-        continue;
-      }
-
-      for (const entry of series.values) {
-        const dateTime = new Date(entry[0]).toISOString();
-        const value = entry[1];
-
-        if (!result[dateTime]) {
-          result[dateTime] = {};
-        }
-        result[dateTime]![name] = value;
-      }
-    }
-
-    const uniqueSeriesNames = new Set(seriesNames);
-    const uniqueSeriesArray = Array.from(uniqueSeriesNames);
-
-    csvString = `DateTime,${uniqueSeriesArray.join(',')}\n`;
-
-    const sortedDateTimes = Object.keys(result).sort();
-
-    for (const dateTime of sortedDateTimes) {
-      const temp: any[] = [];
-      const rowData = result[dateTime];
-      if (rowData) {
-        for (const name of uniqueSeriesArray) {
-          temp.push(rowData[name] ?? '');
-        }
-      }
-      csvString += `${dateTime},${temp.join(',')}\n`;
-    }
-    return csvString;
-  };
-
-  const exportBarChartData = (data: BarChartData): string => {
-    let csvString = '';
-
-    if (data.categories && data.series) {
-      const seriesNames = data.series.map(s => s.name);
-      csvString = `Category,${seriesNames.join(',')}\n`;
-
-      for (let i = 0; i < data.categories.length; i++) {
-        const category = data.categories[i];
-        const values = data.series.map(s => s.data[i] ?? '');
-        csvString += `${category},${values.join(',')}\n`;
-      }
-    } else if (data.data && Array.isArray(data.data)) {
-      const seriesNames = [...new Set(data.data.map(d => d.series || 'Value'))];
-      const categories = [...new Set(data.data.map(d => d.category))];
-
-      csvString = `Category,${seriesNames.join(',')}\n`;
-
-      for (const category of categories) {
-        const values = seriesNames.map(seriesName => {
-          const item = data.data?.find(d => d.category === category && (d.series || 'Value') === seriesName);
-          return item?.value ?? '';
-        });
-        csvString += `${category},${values.join(',')}\n`;
-      }
-    } else if (data.series && !data.categories) {
-      const seriesNames = data.series.map(s => s.name);
-      csvString = `Index,${seriesNames.join(',')}\n`;
-
-      const maxLength = Math.max(...data.series.map(s => s.data.length));
-      for (let i = 0; i < maxLength; i++) {
-        const values = data.series.map(s => s.data[i] ?? '');
-        csvString += `${i},${values.join(',')}\n`;
-      }
-    }
-
-    return csvString;
-  };
-
-  const exportTableData = (data: TableData): string => {
-    if (!data.columns || !data.rows) {
-      return '';
-    }
-
-    let csvString = `${data.columns.join(',')}\n`;
-    
-    for (const row of data.rows) {
-      const escapedRow = row.map(cell => {
-        const cellStr = String(cell ?? '');
-        if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-          return `"${cellStr.replace(/"/g, '""')}"`;
-        }
-        return cellStr;
-      });
-      csvString += `${escapedRow.join(',')}\n`;
-    }
-
-    return csvString;
-  };
-
-  // Main CSV export handler
-  const csvExportHandler = () => {
-    if (!queryResults) {
-      console.warn('No data available to export to CSV. queryResults:', queryResults);
-      return;
-    }
-
-    let csvString = '';
-    let dataToExport = queryResults;
-
-    try {
-      // Handle QueryData array - find the first exportable data
-      if (Array.isArray(queryResults)) {
-        for (const query of queryResults) {
-          if (query.data && (isTimeSeriesData(query.data) || isBarChartData(query.data) || isTableData(query.data))) {
-            dataToExport = query.data;
-            break;
-          }
-        }
-      }
-      
-      // Handle single QueryData object
-      if (dataToExport && typeof dataToExport === 'object' && 'data' in dataToExport) {
-        dataToExport = (dataToExport as QueryData).data;
-      }
-
-      // Export based on data type
-      if (isTimeSeriesData(dataToExport)) {
-        csvString = exportTimeSeriesData(dataToExport);
-      } else if (isBarChartData(dataToExport)) {
-        csvString = exportBarChartData(dataToExport);
-      } else if (isTableData(dataToExport)) {
-        csvString = exportTableData(dataToExport);
-      }
-    } catch (error) {
-      console.error('Error exporting CSV:', error);
-      return;
-    }
-
-    if (!csvString) {
-      console.warn('No valid data found for CSV export');
-      return;
-    }
-
-    console.log('Generated CSV String:', csvString);
-
-    const blobCsvData = new Blob([csvString], { type: 'text/csv' });
-    const csvURL = URL.createObjectURL(blobCsvData);
-    const link = document.createElement('a');
-    link.href = csvURL;
-    link.download = `${title}_${panelType}Data.csv`;
-    link.click();
-    URL.revokeObjectURL(csvURL);
-  };
+  // Check if current data is exportable
+  const hasExportableDataCheck = useMemo(() => hasExportableData(queryResults), [queryResults]);
+  const csvExportHandler = useMemo(() => 
+    createCsvExportHandler(title, queryResults, dataType), 
+    [title, queryResults, dataType]
+  );
 
   const csvExportButton = useMemo(() => {
-    if (!shouldShowCsvExport) {
+    if (!hasExportableDataCheck) {
       return null;
     }
 
+    const detectedType = dataType || detectDataType(queryResults);
+    const tooltipText = `Export ${detectedType} data as CSV`;
+
     return (
-      <InfoTooltip description="Export as CSV">
+      <InfoTooltip description={tooltipText}>
         <HeaderIconButton
-          aria-label="CSV Export"
+          aria-label={`CSV Export ${detectedType} data`}
           size="small"
           onClick={csvExportHandler}
         >
@@ -349,7 +384,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
         </HeaderIconButton>
       </InfoTooltip>
     );
-  }, [csvExportHandler, shouldShowCsvExport]);
+  }, [hasExportableDataCheck, csvExportHandler, dataType, queryResults]);
 
   const descriptionAction = useMemo(() => {
     if (description && description.trim().length > 0) {
@@ -368,49 +403,19 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
     }
     return undefined;
   }, [descriptionTooltipId, description]);
-  
+
   const linksAction = links && links.length > 0 && <PanelLinks links={links} />;
   const extraActions = editHandlers === undefined && extra;
 
   const queryStateIndicator = useMemo(() => {
-    const hasData = queryResults && (() => {
-      // Handle array of QueryData
-      if (Array.isArray(queryResults)) {
-        return queryResults.length > 0;
-      }
-      
-      // Handle TimeSeriesData
-      if (isTimeSeriesData(queryResults)) {
-        return queryResults.series && queryResults.series.length > 0;
-      }
-      
-      // Handle BarChartData
-      if (isBarChartData(queryResults)) {
-        return (queryResults.data && Array.isArray(queryResults.data) && queryResults.data.length > 0) ||
-               (queryResults.series && queryResults.series.length > 0);
-      }
-      
-      // Handle TableData
-      if (isTableData(queryResults)) {
-        return queryResults.rows && Array.isArray(queryResults.rows) && queryResults.rows.length > 0;
-      }
-      
-      // Handle TraceData
-      if (queryResults && typeof queryResults === 'object' && 'spans' in queryResults) {
-        return queryResults.spans && Array.isArray(queryResults.spans) && queryResults.spans.length > 0;
-      }
-      
-      // Handle generic QueryData
-      if (queryResults && typeof queryResults === 'object') {
-        return Object.keys(queryResults).length > 0;
-      }
-      
-      return false;
-    })();
-    
+    const hasData = queryResults && (
+      (queryResults as any).series?.length > 0 || 
+      (queryResults as any).rows?.length > 0 ||
+      (queryResults as any).categories?.length > 0
+    );
     const isFetching = false;
     const queryErrors: any[] = [];
-
+    
     if (isFetching && hasData) {
       return <CircularProgress aria-label="loading" size="1.125rem" />;
     } else if (queryErrors.length > 0) {
@@ -548,7 +553,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
           {extraActions} {readActions}
           <OverflowMenu title={title}>
             {editActions}
-            {csvExportButton}
+            {csvExportButton} 
           </OverflowMenu>
           {moveAction}
         </OnHover>

@@ -17,7 +17,7 @@ import { Link, TimeSeriesData } from '@perses-dev/core';
 import { QueryData, useReplaceVariablesInString } from '@perses-dev/plugin-system';
 import { ReactElement, ReactNode, useMemo } from 'react';
 import { HEADER_ACTIONS_CONTAINER_NAME } from '../../constants';
-import { PanelActions, PanelActionsProps } from './PanelActions';
+import { PanelActions, PanelActionsProps, TableData, BarChartData } from './PanelActions';
 
 type OmittedProps = 'children' | 'action' | 'title' | 'disableTypography';
 
@@ -30,8 +30,144 @@ export interface PanelHeaderProps extends Omit<CardHeaderProps, OmittedProps> {
   queryResults: QueryData[];
   readHandlers?: PanelActionsProps['readHandlers'];
   editHandlers?: PanelActionsProps['editHandlers'];
-  panelType?: 'timeseries' | 'bar' | 'table' | 'other'; // Add panelType prop
+  // Optional prop to explicitly specify the data type if auto-detection isn't sufficient
+  dataType?: 'timeseries' | 'table' | 'barchart' | 'undefined';
 }
+
+// Enhanced data detection and extraction
+const extractDataForExport = (queryResults: QueryData[]): {
+  data: TimeSeriesData | TableData | BarChartData | undefined;
+  detectedType: 'timeseries' | 'table' | 'barchart' | 'unknown';
+} => {
+  for (const query of queryResults) {
+    if (!query.data) continue;
+
+    // Check for time series data
+    if ('series' in query.data && Array.isArray(query.data.series)) {
+      return {
+        data: query.data as TimeSeriesData,
+        detectedType: 'timeseries'
+      };
+    }
+
+    // Check for table data
+    if ('columns' in query.data && 'rows' in query.data) {
+      return {
+        data: query.data as TableData,
+        detectedType: 'table'
+      };
+    }
+
+    // Check for bar chart data
+    if ('categories' in query.data && 'series' in query.data) {
+      const barData = query.data as any;
+
+      if (
+        Array.isArray(barData.categories) &&
+        Array.isArray(barData.series) &&
+        barData.series.every(
+          (s: any) =>
+            typeof s.name === 'string' &&
+            Array.isArray(s.data)
+        )
+      ) {
+        return {
+          data: {
+            categories: barData.categories,
+            series: barData.series,
+            xAxis: barData.xAxis,
+            yAxis: barData.yAxis,
+            metadata: barData.metadata
+          } as BarChartData,
+          detectedType: 'barchart'
+        };
+      }
+    }
+
+    // Additional heuristics for different data formats
+    // Sometimes data might be structured differently depending on the source
+    
+    // Check if it's a flattened table format
+    if (Array.isArray(query.data) && query.data.length > 0) {
+      const firstItem = query.data[0];
+      if (typeof firstItem === 'object' && firstItem !== null) {
+        // Convert array of objects to table format
+        const keys = Object.keys(firstItem);
+        const tableData: TableData = {
+          columns: keys.map(key => ({ name: key, displayName: key })),
+          rows: query.data as Array<Record<string, any>>
+        };
+        return {
+          data: tableData,
+          detectedType: 'table'
+        };
+      }
+    }
+
+    // Check for chart data with different structure
+    if (typeof query.data === 'object') {
+      const dataObj = query.data as any;
+      
+      // Alternative bar chart format
+      if (dataObj.labels && dataObj.datasets) {
+        const barChartData: BarChartData = {
+          categories: dataObj.labels,
+          series: dataObj.datasets.map((dataset: any, index: number) => ({
+            name: dataset.label || `Dataset ${index + 1}`,
+            displayName: dataset.label || `Dataset ${index + 1}`,
+            data: dataset.data || [],
+            color: dataset.backgroundColor || dataset.borderColor
+          })),
+          xAxis: dataObj.xAxis || { title: 'Categories' },
+          yAxis: dataObj.yAxis || { title: 'Values' }
+        };
+        return {
+          data: barChartData,
+          detectedType: 'barchart'
+        };
+      }
+
+      // Alternative time series format
+      if (dataObj.datasets && Array.isArray(dataObj.datasets)) {
+        const hasTimeData = dataObj.datasets.some((dataset: any) => 
+          dataset.data && Array.isArray(dataset.data) && 
+          dataset.data.some((point: any) => 
+            (Array.isArray(point) && point.length >= 2) || 
+            (typeof point === 'object' && (point.x !== undefined || point.t !== undefined))
+          )
+        );
+        
+        if (hasTimeData) {
+          // Convert to TimeSeriesData format
+          const timeSeriesData: TimeSeriesData = {
+            series: dataObj.datasets.map((dataset: any) => ({
+              name: dataset.label || 'Series',
+              displayName: dataset.label || 'Series',
+              values: dataset.data.map((point: any) => {
+                if (Array.isArray(point)) return point;
+                if (typeof point === 'object') {
+                  const time = point.x || point.t || point.timestamp;
+                  const value = point.y || point.value;
+                  return [time, value];
+                }
+                return [0, point]; // fallback
+              })
+            }))
+          };
+          return {
+            data: timeSeriesData,
+            detectedType: 'timeseries'
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    data: undefined,
+    detectedType: 'unknown'
+  };
+};
 
 export function PanelHeader({
   id,
@@ -43,7 +179,7 @@ export function PanelHeader({
   editHandlers,
   sx,
   extra,
-  panelType = 'timeseries', // Default to timeseries
+  dataType,
   ...rest
 }: PanelHeaderProps): ReactElement {
   const titleElementId = `${id}-title`;
@@ -52,12 +188,14 @@ export function PanelHeader({
   const title = useReplaceVariablesInString(rawTitle) as string;
   const description = useReplaceVariablesInString(rawDescription);
 
-  // Enhanced data processing for different panel types
-  const dataForExport = useMemo(() => {
-    // If we have queryResults, pass them directly to PanelActions
-    // The PanelActions component will handle the type detection and export logic
-    return queryResults;
-  }, [queryResults]);
+  // Enhanced data extraction with multiple format support
+  const { exportableData, detectedDataType } = useMemo(() => {
+    const { data, detectedType } = extractDataForExport(queryResults);
+    return {
+      exportableData: data,
+      detectedDataType: dataType || detectedType
+    };
+  }, [queryResults, dataType]);
 
   return (
     <CardHeader
@@ -72,8 +210,6 @@ export function PanelHeader({
             id={titleElementId}
             variant="subtitle1"
             sx={{
-              // `minHeight` guarantees that the header has the correct height
-              // when there is no title (i.e. in the preview)
               lineHeight: '24px',
               minHeight: '26px',
               whiteSpace: 'nowrap',
@@ -88,11 +224,11 @@ export function PanelHeader({
             description={description}
             descriptionTooltipId={descriptionTooltipId}
             links={links}
-            queryResults={dataForExport}
+            queryResults={exportableData}
+            dataType={detectedDataType === 'unknown' ? undefined : (detectedDataType as 'timeseries' | 'table' | 'barchart')}
             readHandlers={readHandlers}
             editHandlers={editHandlers}
             extra={extra}
-            panelType={panelType}
           />
         </Stack>
       }
