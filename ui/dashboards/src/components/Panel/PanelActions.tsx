@@ -36,45 +36,28 @@ import {
 import { HeaderIconButton } from './HeaderIconButton';
 import { PanelLinks } from './PanelLinks';
 
-// Enhanced data types for different chart types
+// Import the types from PanelHeader to avoid duplication
 export interface TableData {
-  columns: Array<{
-    name: string;
-    displayName?: string;
-    type?: string;
-  }>;
+  columns: Array<{ name: string; displayName: string }>;
   rows: Array<Record<string, any>>;
-  metadata?: {
-    title?: string;
-    description?: string;
-  };
 }
 
 export interface BarChartData {
   categories: string[];
   series: Array<{
     name: string;
-    displayName?: string;
-    data: number[];
+    displayName: string;
+    data: any[];
     color?: string;
   }>;
-  xAxis?: {
-    title?: string;
-    categories?: string[];
-  };
-  yAxis?: {
-    title?: string;
-    min?: number;
-    max?: number;
-  };
-  metadata?: {
-    title?: string;
-    description?: string;
-  };
+  xAxis?: { title: string };
+  yAxis?: { title: string };
+  metadata?: any;
 }
 
 export interface PanelActionsProps {
   title: string;
+  projectName?: string;
   description?: string;
   descriptionTooltipId: string;
   links?: Link[];
@@ -88,8 +71,8 @@ export interface PanelActionsProps {
     isPanelViewed?: boolean;
     onViewPanelClick: () => void;
   };
-  queryResults: TimeSeriesData | TableData | BarChartData | undefined;
-  dataType?: 'timeseries' | 'table' | 'barchart';
+  queryResults?: TimeSeriesData | TableData | BarChartData | undefined;
+  dataType?: 'timeseries' | 'table' | 'barchart' | undefined;
 }
 
 const ConditionalBox = styled(Box)({
@@ -99,252 +82,14 @@ const ConditionalBox = styled(Box)({
   justifyContent: 'flex-end',
 });
 
-// Enhanced data type detection
-const detectDataType = (data: any): 'timeseries' | 'table' | 'barchart' | 'unknown' => {
-  if (!data) return 'unknown';
-  
-  // Check for time series data
-  if (data.series && Array.isArray(data.series) && data.series.length > 0) {
-    const firstSeries = data.series[0];
-    if (firstSeries.values && Array.isArray(firstSeries.values)) {
-      return 'timeseries';
-    }
-  }
-  
-  // Check for table data
-  if (data.columns && Array.isArray(data.columns) && data.rows && Array.isArray(data.rows)) {
-    return 'table';
-  }
-  
-  // Check for bar chart data
-  if (data.categories && Array.isArray(data.categories) && data.series && Array.isArray(data.series)) {
-    const firstSeries = data.series[0];
-    if (firstSeries && firstSeries.data && Array.isArray(firstSeries.data)) {
-      return 'barchart';
-    }
-  }
-  
-  return 'unknown';
+// Function to check if the data is time series data
+const isTimeSeriesData = (data: TimeSeriesData | TableData | BarChartData | undefined): data is TimeSeriesData => {
+  return !!(data && 'series' in data && Array.isArray(data.series) && data.series.length > 0);
 };
 
-// Function to check if we have exportable data
-const hasExportableData = (data: any): boolean => {
-  const dataType = detectDataType(data);
-  return dataType !== 'unknown';
-};
-
-// Function to get the actual legend display name from the series
-const getSeriesLegendName = (series: any, seriesIndex: number) => {
-  const legendName = series.formattedName || 
-                    series.legendName || 
-                    series.displayName || 
-                    series.legend || 
-                    series.name || 
-                    `Series ${seriesIndex + 1}`;
-    
-  return {
-    legendName: legendName,
-    columnName: `Series_${seriesIndex + 1}`
-  };
-};
-
-// Enhanced CSV export handler for multiple data types
-const createCsvExportHandler = (
-  title: string, 
-  queryResults: TimeSeriesData | TableData | BarChartData | undefined,
-  dataType?: 'timeseries' | 'table' | 'barchart'
-) => {
-  return () => {
-    if (!queryResults) {
-      console.warn('No data available to export to CSV');
-      return;
-    }
-
-    const detectedType = dataType || detectDataType(queryResults);
-    let csvString = '';
-
-    // Common header information
-    csvString += `# Chart: ${title}\n`;
-    csvString += `# Data Type: ${detectedType}\n`;
-    csvString += `# Exported: ${new Date().toISOString()}\n`;
-
-    switch (detectedType) {
-      case 'timeseries':
-        csvString += exportTimeSeriesData(queryResults as TimeSeriesData, title);
-        break;
-      case 'table':
-        csvString += exportTableData(queryResults as TableData, title);
-        break;
-      case 'barchart':
-        csvString += exportBarChartData(queryResults as BarChartData, title);
-        break;
-      default:
-        console.warn('Unknown data type for export');
-        return;
-    }
-
-    // Create and download the file
-    const blobCsvData = new Blob([csvString], { type: 'text/csv' });
-    const csvURL = URL.createObjectURL(blobCsvData);
-    const link = document.createElement('a');
-    link.href = csvURL;
-    link.download = `${title}_${detectedType}_data.csv`;
-    link.click();
-    URL.revokeObjectURL(csvURL);
-  };
-};
-
-// Time series data export
-const exportTimeSeriesData = (data: TimeSeriesData, title: string): string => {
-  let csvString = '';
-  const result: Record<string, Record<string, any>> = {};
-  const seriesInfo: Array<{legendName: string, columnName: string}> = [];
-
-  if (!data.series || !Array.isArray(data.series) || data.series.length === 0) {
-    console.warn('No time series data available');
-    return '';
-  }
-
-  // Process each series
-  for (let i = 0; i < data.series.length; i++) {
-    const series = data.series[i];
-    if (!series || !Array.isArray(series.values)) continue;
-
-    const seriesMetadata = getSeriesLegendName(series, i);
-    seriesInfo.push(seriesMetadata);
-
-    for (const entry of series.values) {
-      if (!Array.isArray(entry) || entry.length < 2) continue;
-
-      const timestamp = entry[0];
-      const value = entry[1];
-      
-      let dateTime: string;
-      if (typeof timestamp === 'number') {
-        const timestampMs = timestamp > 1e10 ? timestamp : timestamp * 1000;
-        dateTime = new Date(timestampMs).toISOString();
-      } else if (typeof timestamp === 'string') {
-        dateTime = new Date(timestamp).toISOString();
-      } else {
-        continue;
-      }
-
-      if (!result[dateTime]) {
-        result[dateTime] = {};
-      }
-      
-      result[dateTime]![seriesMetadata.columnName] = value;
-    }
-  }
-
-  // Add legend information
-  csvString += `# Legend Information:\n`;
-  for (const info of seriesInfo) {
-    csvString += `# ${info.columnName}: ${info.legendName}\n`;
-  }
-  csvString += `#\n`;
-
-  // Add headers and data
-  const columnNames = seriesInfo.map(info => info.columnName);
-  csvString += `DateTime,${columnNames.join(',')}\n`;
-
-  const sortedDateTimes = Object.keys(result).sort();
-  for (const dateTime of sortedDateTimes) {
-    const rowData = result[dateTime];
-    const temp: any[] = [];
-    
-    for (const columnName of columnNames) {
-      temp.push(rowData?.[columnName] ?? '');
-    }
-    
-    csvString += `${dateTime},${temp.join(',')}\n`;
-  }
-
-  return csvString;
-};
-
-// Table data export
-const exportTableData = (data: TableData, title: string): string => {
-  let csvString = '';
-
-  if (!data.columns || !data.rows) {
-    console.warn('Invalid table data structure');
-    return '';
-  }
-
-  // Add column information
-  csvString += `# Column Information:\n`;
-  for (const column of data.columns) {
-    const displayName = column.displayName || column.name;
-    const type = column.type ? ` (${column.type})` : '';
-    csvString += `# ${column.name}: ${displayName}${type}\n`;
-  }
-  csvString += `#\n`;
-
-  // Add headers
-  const headers = data.columns.map(col => col.displayName || col.name);
-  csvString += `${headers.join(',')}\n`;
-
-  // Add data rows
-  for (const row of data.rows) {
-    const values = data.columns.map(col => {
-      const value = row[col.name];
-      // Handle different data types appropriately
-      if (value === null || value === undefined) return '';
-      if (typeof value === 'string' && value.includes(',')) {
-        return `"${value.replace(/"/g, '""')}"`;
-      }
-      return String(value);
-    });
-    csvString += `${values.join(',')}\n`;
-  }
-
-  return csvString;
-};
-
-// Bar chart data export
-const exportBarChartData = (data: BarChartData, title: string): string => {
-  let csvString = '';
-
-  if (!data.categories || !data.series) {
-    console.warn('Invalid bar chart data structure');
-    return '';
-  }
-
-  // Add axis information
-  csvString += `# Axis Information:\n`;
-  if (data.xAxis?.title) {
-    csvString += `# X-Axis: ${data.xAxis.title}\n`;
-  }
-  if (data.yAxis?.title) {
-    csvString += `# Y-Axis: ${data.yAxis.title}\n`;
-  }
-
-  // Add series information
-  csvString += `# Series Information:\n`;
-  for (let i = 0; i < data.series.length; i++) {
-    const series = data.series[i];
-    if (!series) continue;
-    const displayName = series.displayName || series.name;
-    csvString += `# Series_${i + 1}: ${displayName}\n`;
-  }
-  csvString += `#\n`;
-
-  // Add headers
-  const seriesHeaders = data.series.map((_, index) => `Series_${index + 1}`);
-  csvString += `Category,${seriesHeaders.join(',')}\n`;
-
-  // Add data rows
-  for (let i = 0; i < data.categories.length; i++) {
-    const category = data.categories[i];
-    const values = data.series.map(series => {
-      const value = series.data[i];
-      return value !== undefined ? String(value) : '';
-    });
-    csvString += `${category},${values.join(',')}\n`;
-  }
-
-  return csvString;
+// Helper function to sanitize filename - removes special characters and replaces with underscores
+const sanitizeFilename = (filename: string): string => {
+  return filename.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_');
 };
 
 export const PanelActions: React.FC<PanelActionsProps> = ({
@@ -352,31 +97,106 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
   readHandlers,
   extra,
   title,
+  projectName,
   description,
   descriptionTooltipId,
   links,
   queryResults,
   dataType,
 }) => {
-  // Check if current data is exportable
-  const hasExportableDataCheck = useMemo(() => hasExportableData(queryResults), [queryResults]);
-  const csvExportHandler = useMemo(() => 
-    createCsvExportHandler(title, queryResults, dataType), 
-    [title, queryResults, dataType]
-  );
+  const formatSeriesTitle = (seriesName: string, seriesIndex: number) => {
+    return seriesName;
+  };
+
+  // Check if current data is time series data
+  const hasTimeSeriesData = useMemo(() => {
+    return dataType === 'timeseries' && isTimeSeriesData(queryResults);
+  }, [queryResults, dataType]);
+
+  // CSV export handler for time series data
+  const csvExportHandler = () => {
+    if (!hasTimeSeriesData || !isTimeSeriesData(queryResults)) {
+      console.warn('No time series data available to export to CSV. queryResults:', queryResults);
+      return;
+    }
+
+    const timeSeriesData = queryResults as TimeSeriesData;
+
+    if (!timeSeriesData.series || !Array.isArray(timeSeriesData.series) || timeSeriesData.series.length === 0) {
+      console.warn('No series data available to export to CSV.');
+      return;
+    }
+
+    let csvString = '';
+    const result: Record<string, Record<string, any>> = {};
+    const seriesNames: string[] = [];
+
+    for (let i = 0; i < timeSeriesData.series.length; i++) {
+      const series = timeSeriesData.series[i];
+
+      if (!series?.name || !Array.isArray(series.values)) {
+        continue;
+      }
+
+      const name = formatSeriesTitle(series.name, i);
+      seriesNames.push(name);
+      if (!name) {
+        continue;
+      }
+
+      for (const entry of series.values) {
+        const dateTime = new Date(entry[0]).toISOString();
+        const value = entry[1];
+
+        if (!result[dateTime]) {
+          result[dateTime] = {};
+        }
+        result[dateTime]![name] = value;
+      }
+    }
+
+    const uniqueSeriesNames = new Set(seriesNames);
+    const uniqueSeriesArray = Array.from(uniqueSeriesNames);
+
+    csvString = `DateTime,${uniqueSeriesArray.join(',')}\n`;
+
+    const sortedDateTimes = Object.keys(result).sort();
+
+    for (const dateTime of sortedDateTimes) {
+      const temp: any[] = [];
+      const rowData = result[dateTime];
+      if (rowData) {
+        for (const name of uniqueSeriesArray) {
+          temp.push(rowData[name] ?? '');
+        }
+      }
+      csvString += `${dateTime},${temp.join(',')}\n`;
+    }
+
+    // Generate filename in format: ProjectName_PanelName_data.csv
+    const sanitizedProjectName = projectName ? sanitizeFilename(projectName) : 'Project';
+    const sanitizedPanelName = sanitizeFilename(title);
+    const filename = `${sanitizedProjectName}_${sanitizedPanelName}_data.csv`;
+
+    const blobCsvData = new Blob([csvString], { type: 'text/csv' });
+    const csvURL = URL.createObjectURL(blobCsvData);
+    const link = document.createElement('a');
+    link.href = csvURL;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(csvURL);
+  };
 
   const csvExportButton = useMemo(() => {
-    if (!hasExportableDataCheck) {
+    // Only show CSV export button if we have time series data
+    if (!hasTimeSeriesData) {
       return null;
     }
 
-    const detectedType = dataType || detectDataType(queryResults);
-    const tooltipText = `Export ${detectedType} data as CSV`;
-
     return (
-      <InfoTooltip description={tooltipText}>
+      <InfoTooltip description="Export as CSV">
         <HeaderIconButton
-          aria-label={`CSV Export ${detectedType} data`}
+          aria-label="CSV Export"
           size="small"
           onClick={csvExportHandler}
         >
@@ -384,7 +204,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
         </HeaderIconButton>
       </InfoTooltip>
     );
-  }, [hasExportableDataCheck, csvExportHandler, dataType, queryResults]);
+  }, [hasTimeSeriesData, csvExportHandler]);
 
   const descriptionAction = useMemo(() => {
     if (description && description.trim().length > 0) {
@@ -409,9 +229,9 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 
   const queryStateIndicator = useMemo(() => {
     const hasData = queryResults && (
-      (queryResults as any).series?.length > 0 || 
-      (queryResults as any).rows?.length > 0 ||
-      (queryResults as any).categories?.length > 0
+      (isTimeSeriesData(queryResults) && queryResults.series && queryResults.series.length > 0) ||
+      ('columns' in queryResults && 'rows' in queryResults) ||
+      ('categories' in queryResults && 'series' in queryResults)
     );
     const isFetching = false;
     const queryErrors: any[] = [];
@@ -477,6 +297,8 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
               <ContentCopyIcon
                 fontSize="inherit"
                 sx={{
+                  // Shrink this icon a little bit to look more consistent
+                  // with the other icons in the header.
                   transform: 'scale(0.925)',
                 }}
               />
@@ -512,6 +334,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 
   const divider = <Box sx={{ flexGrow: 1 }}></Box>;
 
+  // if the panel is in non-editing, non-fullscreen mode, show certain icons only on hover
   const OnHover = ({ children }: PropsWithChildren): ReactNode =>
     editHandlers === undefined && !readHandlers?.isPanelViewed ? (
       <Box sx={{ display: 'var(--panel-hover, none)' }}>{children}</Box>
@@ -562,6 +385,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
       {/* large panel width: show all icons in panel header */}
       <ConditionalBox
         sx={(theme) => ({
+          // flip the logic here; if the browser (or jsdom) does not support container queries, always show all icons
           display: 'flex',
           [theme.containerQueries(HEADER_ACTIONS_CONTAINER_NAME).down(HEADER_MEDIUM_WIDTH)]: { display: 'none' },
         })}
@@ -584,6 +408,7 @@ export const PanelActions: React.FC<PanelActionsProps> = ({
 const OverflowMenu: React.FC<PropsWithChildren<{ title: string }>> = ({ children, title }) => {
   const [anchorPosition, setAnchorPosition] = useState<PopoverPosition>();
 
+  // do not show overflow menu if there is no content (for example, edit actions are hidden)
   const hasContent = isValidElement(children) || (Array.isArray(children) && children.some(isValidElement));
   if (!hasContent) {
     return undefined;

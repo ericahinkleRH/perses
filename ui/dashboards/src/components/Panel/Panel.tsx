@@ -27,6 +27,8 @@ export interface PanelProps extends CardProps<'section'> {
   editHandlers?: PanelHeaderProps['editHandlers'];
   panelOptions?: PanelOptions;
   panelGroupItemId?: PanelGroupItemId;
+  // Add project name prop
+  projectName?: string;
 }
 
 export type PanelOptions = {
@@ -53,6 +55,96 @@ export type PanelExtraProps = {
   panelGroupItemId?: PanelGroupItemId;
 };
 
+// Enhanced helper function to extract project name from various sources
+const getProjectName = (
+  explicitProjectName?: string,
+  definition?: PanelDefinition
+): string | undefined => {
+  // 1. Use explicitly passed project name first
+  if (explicitProjectName) {
+    return explicitProjectName;
+  }
+
+  // 2. Try to extract from panel definition using safe property access
+  if (definition) {
+    // Try different possible paths where project name might be stored
+    const def = definition as any; // Use any to safely access potentially undefined properties
+    
+    // Check common metadata paths
+    const metadataPaths = [
+      def.metadata?.project,
+      def.metadata?.labels?.project,
+      def.metadata?.annotations?.project,
+      def.metadata?.annotations?.['project.name'],
+      def.metadata?.annotations?.['perses.dev/project'],
+      def.spec?.metadata?.project,
+      def.spec?.project,
+      def.project,
+      def.projectName
+    ];
+
+    for (const path of metadataPaths) {
+      if (typeof path === 'string' && path.trim()) {
+        return path.trim();
+      }
+    }
+
+    // Check if the definition has a name that includes project info
+    if (def.metadata?.name && typeof def.metadata.name === 'string') {
+      // Look for patterns like "project-name-panel-name" or "project.panel"
+      const nameParts = def.metadata.name.split(/[-._]/);
+      if (nameParts.length > 1) {
+        // Return the first part as potential project name
+        return nameParts[0];
+      }
+    }
+  }
+
+  // 3. Extract from URL - multiple possible patterns
+  const path = window.location.pathname;
+  
+  // Common Perses URL patterns
+  const urlPatterns = [
+    /\/projects\/([^\/]+)/,           // /projects/project-name
+    /\/project\/([^\/]+)/,            // /project/project-name  
+    /\/p\/([^\/]+)/,                  // /p/project-name
+    /\/([^\/]+)\/dashboards/,         // /project-name/dashboards
+    /\/([^\/]+)\/panels/,             // /project-name/panels
+    /\/orgs\/[^\/]+\/projects\/([^\/]+)/, // /orgs/org-name/projects/project-name
+  ];
+
+  for (const pattern of urlPatterns) {
+    const match = path.match(pattern);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+  }
+
+  // 4. Try to extract from query parameters
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectFromQuery = urlParams.get('project') || urlParams.get('projectName');
+    if (projectFromQuery) {
+      return projectFromQuery;
+    }
+  } catch (error) {
+    // Ignore URL parsing errors
+  }
+
+  // 5. Try to extract from hash
+  try {
+    const hash = window.location.hash;
+    const hashMatch = hash.match(/project[=/]([^&/#]+)/i);
+    if (hashMatch && hashMatch[1]) {
+      return decodeURIComponent(hashMatch[1]);
+    }
+  } catch (error) {
+    // Ignore hash parsing errors
+  }
+
+  return undefined;
+};
+
 /**
  * Renders a PanelDefinition's content inside of a Card.
  *
@@ -71,6 +163,7 @@ export const Panel = memo(function Panel(props: PanelProps) {
     sx,
     panelOptions,
     panelGroupItemId,
+    projectName: explicitProjectName, // Extract the new prop
     ...others
   } = props;
 
@@ -90,6 +183,23 @@ export const Panel = memo(function Panel(props: PanelProps) {
   const chartsTheme = useChartsTheme();
 
   const { queryResults } = useDataQueriesContext();
+
+  // Get the project name from various sources with enhanced fallback logic
+  const projectName = useMemo(() => {
+    const extractedName = getProjectName(explicitProjectName, definition);
+    
+    // Log for debugging purposes (remove in production)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Project name extraction:', {
+        explicit: explicitProjectName,
+        extracted: extractedName,
+        url: window.location.pathname,
+        definition: definition
+      });
+    }
+    
+    return extractedName;
+  }, [explicitProjectName, definition]);
 
   const handleMouseEnter: CardProps['onMouseEnter'] = (e) => {
     onMouseEnter?.(e);
@@ -130,6 +240,7 @@ export const Panel = memo(function Panel(props: PanelProps) {
           readHandlers={readHandlers}
           editHandlers={editHandlers}
           links={definition.spec.links}
+          projectName={projectName} // Pass the project name to PanelHeader
           sx={{ paddingX: `${chartsTheme.container.padding.default}px` }}
         />
       )}

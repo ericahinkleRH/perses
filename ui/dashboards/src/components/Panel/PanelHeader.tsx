@@ -17,7 +17,7 @@ import { Link, TimeSeriesData } from '@perses-dev/core';
 import { QueryData, useReplaceVariablesInString } from '@perses-dev/plugin-system';
 import { ReactElement, ReactNode, useMemo } from 'react';
 import { HEADER_ACTIONS_CONTAINER_NAME } from '../../constants';
-import { PanelActions, PanelActionsProps, TableData, BarChartData } from './PanelActions';
+import { PanelActions, PanelActionsProps } from './PanelActions';
 
 type OmittedProps = 'children' | 'action' | 'title' | 'disableTypography';
 
@@ -30,8 +30,27 @@ export interface PanelHeaderProps extends Omit<CardHeaderProps, OmittedProps> {
   queryResults: QueryData[];
   readHandlers?: PanelActionsProps['readHandlers'];
   editHandlers?: PanelActionsProps['editHandlers'];
+  projectName?: string; // Add project name for CSV export
   // Optional prop to explicitly specify the data type if auto-detection isn't sufficient
   dataType?: 'timeseries' | 'table' | 'barchart' | 'undefined';
+}
+
+export interface TableData {
+  columns: Array<{ name: string; displayName: string }>;
+  rows: Array<Record<string, any>>;
+}
+
+export interface BarChartData {
+  categories: string[];
+  series: Array<{
+    name: string;
+    displayName: string;
+    data: any[];
+    color?: string;
+  }>;
+  xAxis?: { title: string };
+  yAxis?: { title: string };
+  metadata?: any;
 }
 
 // Enhanced data detection and extraction
@@ -169,6 +188,47 @@ const extractDataForExport = (queryResults: QueryData[]): {
   };
 };
 
+// Enhanced project name extraction with URL fallback
+const getProjectNameFromContext = (explicitProjectName?: string): string | undefined => {
+  // 1. Use explicit project name first
+  if (explicitProjectName && explicitProjectName.trim()) {
+    return explicitProjectName.trim();
+  }
+
+  // 2. Extract from URL with multiple patterns
+  const path = window.location.pathname;
+  
+  const urlPatterns = [
+    /\/projects\/([^\/]+)/,           // /projects/project-name
+    /\/project\/([^\/]+)/,            // /project/project-name  
+    /\/p\/([^\/]+)/,                  // /p/project-name
+    /\/([^\/]+)\/dashboards/,         // /project-name/dashboards
+    /\/([^\/]+)\/panels/,             // /project-name/panels
+    /\/orgs\/[^\/]+\/projects\/([^\/]+)/, // /orgs/org-name/projects/project-name
+  ];
+
+  for (const pattern of urlPatterns) {
+    const match = path.match(pattern);
+    if (match && match[1] && match[1].trim()) {
+      return decodeURIComponent(match[1].trim());
+    }
+  }
+
+  // 3. Try to extract from query parameters
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectFromQuery = urlParams.get('project') || urlParams.get('projectName');
+    if (projectFromQuery && projectFromQuery.trim()) {
+      return projectFromQuery.trim();
+    }
+  } catch (error) {
+    // Ignore URL parsing errors
+  }
+
+  // 4. Default fallback
+  return 'Dashboard';
+};
+
 export function PanelHeader({
   id,
   title: rawTitle,
@@ -180,6 +240,7 @@ export function PanelHeader({
   sx,
   extra,
   dataType,
+  projectName: explicitProjectName,
   ...rest
 }: PanelHeaderProps): ReactElement {
   const titleElementId = `${id}-title`;
@@ -196,6 +257,24 @@ export function PanelHeader({
       detectedDataType: dataType || detectedType
     };
   }, [queryResults, dataType]);
+
+  // Enhanced project name resolution
+  const resolvedProjectName = useMemo(() => {
+    const projectName = getProjectNameFromContext(explicitProjectName);
+    
+    // Debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('PanelHeader project name resolution:', {
+        explicit: explicitProjectName,
+        resolved: projectName,
+        url: window.location.pathname,
+        hasQueryResults: queryResults.length > 0,
+        dataType: detectedDataType
+      });
+    }
+    
+    return projectName;
+  }, [explicitProjectName, detectedDataType]);
 
   return (
     <CardHeader
@@ -221,6 +300,7 @@ export function PanelHeader({
           </Typography>
           <PanelActions
             title={title}
+            projectName={resolvedProjectName}
             description={description}
             descriptionTooltipId={descriptionTooltipId}
             links={links}
